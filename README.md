@@ -1,4 +1,4 @@
-# DCS-Basic-EFM-Template
+# DCS Basic EFM Template
 Thank you for checking out this flight model project!
 
 This is a successor to my previous custom FM project; a replacement for the DCS simple flight model with emphasis on simplicity and editability while also feeling smooth and believable.
