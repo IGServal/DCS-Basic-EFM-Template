@@ -162,9 +162,9 @@ copy /Y "$(TargetPath)" "$(USERPROFILE)\\Saved Games\DCS\mods\Aircraft\dummy.dll
     <None Include="ReadMe.txt" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="..\include\Cockpit\ccParametersAPI.h" />
     <ClInclude Include="Basic_EFM_Template.h" />
     <ClInclude Include="ED_FM_TemplateAPI.h" />
+    <ClInclude Include="include\Cockpit\ccParametersAPI.h" />
     <ClInclude Include="Utility.h" />
     <ClInclude Include="FM_data.h" />
     <ClInclude Include="include\Cockpit\CockpitAPI_Declare.h" />
