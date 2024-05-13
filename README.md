@@ -26,7 +26,7 @@ This FM was designed to work "out of the box", designed like a two-engine subson
 Open the .sln file and edit away! The most important stuff is in Basic_EFM_Template.cpp and FM_DATA.h. 
 Build the solution as dll. 
 
-(Microsoft Visual Studio 2019 was used to make this, but I'm sure other versions can work as well.)
+Microsoft Visual Studio 2019 was used to make this, but I'm sure other versions can work as well.
 
 AFTER BUILDING:
 - Go to the directory for the mod you want to integrate this FM with in your /saved games/DCS/mods/aircraft folder.
@@ -46,11 +46,11 @@ FM[2] 		= 'BasicEFM_template.dll'
 FM.config_path 	= cfg_path
 ```
 
-- Go to the line, usually near the end that reads "make_flyable..." and add "FM" instead of {nil, old = 4} to the line like shown below
+- Go to the line, usually near the end that reads "make_flyable..." and add "FM" instead of {nil, old = 54} to the line like shown below
 
 Before:
 ```
-make_flyable('[modded aircraft name]',current_mod_path..'[usually /cocpit/scripts]', {nil, old = 4}, current_mod_path..'/comm.lua')
+make_flyable('[modded aircraft name]',current_mod_path..'[usually /cocpit/scripts]', {nil, old = 54}, current_mod_path..'/comm.lua')
 ```
 
 After:
@@ -58,7 +58,13 @@ After:
 make_flyable('[modded aircraft name]',current_mod_path..'[usually /cocpit/scripts]', FM, current_mod_path..'/comm.lua')
 ```
 
+If the aircraft uses Flaming Cliffs 3 avionics, you can retain that functionality like this:
+```
+FM.old = 54 -- 54 = Su-25T, 3 = Su-27, 6 = F-15C...
+```
+
 - Save the .lua file, boot up DCS, and enjoy a smooth flight!
+
 
 ---------------------------------------------------------------------
 
