@@ -6,19 +6,19 @@
 // This file contains useful functions, mostly math.
 
 // Convert number from degrees to radians
-double rad(double x)
+inline double rad(double x)
 {
 	return x / 57.295779513082320876798154814105;
 };
 
 // Convert number from radians to degrees
-double deg(double x)
+inline double deg(double x)
 {
 	return x * 57.295779513082320876798154814105;
 };
 
 // Simple actuator
-double actuator(double value, double target, double down_speed, double up_speed)
+inline double actuator(double value, double target, double down_speed, double up_speed)
 {
 	if ((value + up_speed) < target)
 	{
@@ -37,7 +37,7 @@ double actuator(double value, double target, double down_speed, double up_speed)
 };
 
 // Simple upper and lower limiter
-double limit(double input, double lower_limit, double upper_limit)
+inline double limit(double input, double lower_limit, double upper_limit)
 {
 	if (input > upper_limit)
 	{
@@ -54,7 +54,7 @@ double limit(double input, double lower_limit, double upper_limit)
 };
 
 // Rescales a -1 to +1 scale to different minima/maxima. Example: -1 to +1 -> -10 to +15
-double rescale(double input, double min, double max)
+inline double rescale(double input, double min, double max)
 {
 	if (input >= 0.0)
 		return input * fabs(max);
@@ -62,16 +62,18 @@ double rescale(double input, double min, double max)
 		return input * fabs(min);
 };
 
-// 3D vector structure
-struct Vec3 
+// 3D vector structure,
+// In DCS coordinates linear: x = forward/back, y = up/down, z = left/right
+// Angular: x = roll, y = yaw, z = pitch
+struct Vec3
 {
-	Vec3(double x_ = 0,double y_ = 0,double z_ = 0) :x(x_),y(y_),z(z_){}
+	inline Vec3(double x_ = 0,double y_ = 0,double z_ = 0) :x(x_),y(y_),z(z_){}
 	double x;
 	double y;
 	double z;
 };
 
-
+// Vector cross product
 inline Vec3 cross(const Vec3 & a, const Vec3 & b)
 {
 	return Vec3 (a.y * b.z - a.z * b.y,
@@ -79,6 +81,9 @@ inline Vec3 cross(const Vec3 & a, const Vec3 & b)
 				 a.x * b.y - a.y * b.x);
 }
 
+/* 
+Unused structs.
+May be useful for more advanced projects with multi-dimensional data tables.
 
 struct Matrix33
 {
@@ -122,9 +127,10 @@ Matrix33 quaternion_to_matrix(const Quaternion & v)
 
 	return mtrx;
 }
+*/
 
 // Linear interpolation
-double lerp(double* x, double* f, unsigned sz, double t)
+inline double lerp(double* x, double* f, unsigned sz, double t)
 {
 	for (unsigned i = 0; i < sz; i++)
 	{
