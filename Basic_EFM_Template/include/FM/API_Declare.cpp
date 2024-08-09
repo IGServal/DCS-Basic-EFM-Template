@@ -309,4 +309,6 @@ enable additional information like force vector visualization , etc.
 	*/
 	ED_FM_TEMPLATE_API bool ed_fm_pop_simulation_event(ed_fm_simulation_event& out);
 
+	ED_FM_TEMPLATE_API bool ed_fm_push_simulation_event(ed_fm_simulation_event& in);
+
 };
