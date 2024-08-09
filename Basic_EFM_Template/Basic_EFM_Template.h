@@ -175,11 +175,14 @@ extern "C"
 	ED_FM_TEMPLATE_API double ed_fm_get_param(unsigned index);
 
 	/*
-	call backs for diffrenrt starting conditions
+	call backs for different starting conditions
 	*/
 	ED_FM_TEMPLATE_API void ed_fm_cold_start();
 	ED_FM_TEMPLATE_API void ed_fm_hot_start();
 	ED_FM_TEMPLATE_API void ed_fm_hot_start_in_air();
 
 	ED_FM_TEMPLATE_API bool ed_fm_enable_debug_info();
+
+	ED_FM_TEMPLATE_API bool ed_fm_pop_simulation_event(ed_fm_simulation_event& out);
+	ED_FM_TEMPLATE_API bool ed_fm_push_simulation_event(const ed_fm_simulation_event& in);
 };
