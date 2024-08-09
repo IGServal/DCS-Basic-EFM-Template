@@ -14,7 +14,7 @@ namespace FM_DATA
 
 	// Mass, weight, inertia, and moment of inertia are all calculated automatically from the aircraft definition file.
 
-	double Cy0 = 0.001; // Zero AoA lift coefficient
+	double Cy0 = 0.0001; // Zero AoA lift coefficient
 	double Czbe = -0.016; // Yaw/side force coefficient
 
 	double cx_gear = 0.012; // Gear drag
@@ -22,7 +22,7 @@ namespace FM_DATA
 	double cx_brk = 0.06; // Air brake drag
 
 	double cx_flap = 0.05; // Flap drag
-	double cy_flap = 0.65; // Flap lift
+	double cy_flap = 0.3; // Flap lift
 
 	// Important: Make sure the first value is 0.
 	// Make sure the number of entries (size) of all other tables are exactly the same.
@@ -117,7 +117,7 @@ namespace FM_DATA
 		1.0,
 	};
 
-	// Max thrust, Newtons.
+	// Max total thrust, Newtons.
 	double max_thrust[] = 
 	{
 		68952.8,
@@ -132,8 +132,9 @@ namespace FM_DATA
 		94234.8,
 		94234.8,
 	};
+	// This is total thrust, not thrust per engine if there's more than one.
 
-	// Throtthe to thrust response curves
+	// Throttle to thrust response curves
 
 	// Throttle level
 	double throttle_input_table[] =
