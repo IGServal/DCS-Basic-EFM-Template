@@ -326,8 +326,6 @@ void ed_fm_simulate(double dt)
 	{
 		left_wing_pos.x = center_of_mass.x - 0.7 - ( limit(pow((fabs(alpha) / (AlphaMax_ * 1.1)), 3) / 2000.0, 0, length / 3) + limit(-aos * 10, 0, 1) );
 		right_wing_pos.x = center_of_mass.x - 0.7 - ( limit(pow((fabs(alpha) / (AlphaMax_ * 1.1)), 3) / 2000.0, 0, length / 3) + limit(aos * 10, 0, 1) );
-		//left_wing_pos.x -= limit(pow(fabs(alpha - 0.1) / (AlphaMax_), 2) / 1000.0, 0, length / 2);
-		//right_wing_pos.x -= limit(pow(fabs(alpha - 0.1) / (AlphaMax_), 2) / 1000.0, 0, length / 2);
 	}
 	else
 	{
