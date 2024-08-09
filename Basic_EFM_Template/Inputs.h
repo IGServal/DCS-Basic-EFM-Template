@@ -52,9 +52,9 @@ enum InputCommands
 	ThrottleStop = 1034,
 
 	// Gear commands
-	geartoggle = 68,
-	gearup = 430,
-	geardown = 431,
+	gearToggle = 68,
+	gearUp = 430,
+	gearDown = 431,
 	WheelBrakeOn = 74,
 	WheelBrakeOff = 75,
 
@@ -64,9 +64,9 @@ enum InputCommands
 	AirBrakesOff = 148,
 
 	// Flap commands
-	flapstoggle = 72,
-	flapsup = 145,
-	flapsdown = 146,
+	flapsToggle = 72,
+	flapsUp = 145,
+	flapsDown = 146,
 
 	// Misc controls
 	resetTrim = 97,
