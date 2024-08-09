@@ -17,10 +17,33 @@ Vec3	common_force;
 Vec3	common_moment;
 Vec3    center_of_mass;
 Vec3	wind;
-Vec3	velocity_world_cs;
+Vec3	velocity_world;
+Vec3	airspeed;
 
 double	const	pi = 3.1415926535897932384626433832795;
 double	const	rad_to_deg = 180.0 / pi;
+
+// Defining aircraft stats here so we don't have to keep calling the FM_DATA namespace.
+double S = FM_DATA::wing_area; // Wing area
+double wingspan = FM_DATA::wingspan; // Wing span
+double length = FM_DATA::length; // Overall length
+double height = FM_DATA::height; // Overall height, not counting landing gear
+double idle_rpm = FM_DATA::idle_rpm / 100; // RPM % at idle throttle
+
+// Initializing force positions
+// The positions are relative to the object's 3d model origin point.
+Vec3 left_wing_pos(center_of_mass.x - 0.7, center_of_mass.y + 0.5, -wingspan / 2);
+Vec3 right_wing_pos(center_of_mass.x - 0.7, center_of_mass.y + 0.5, wingspan / 2);
+Vec3 tail_pos(center_of_mass.x - 0.5, center_of_mass.y, 0);
+
+Vec3 elevator_pos(-length / 2, center_of_mass.y, 0);
+Vec3 left_aileron_pos(center_of_mass.x, center_of_mass.y, -wingspan * 0.5);
+Vec3 right_aileron_pos(center_of_mass.x, center_of_mass.y, wingspan * 0.5);
+Vec3 rudder_pos(-length / 2, height / 2, 0);
+
+// Greater Y and Z offsets create moments from the thrust force.
+Vec3 left_engine_pos(-3.793, -0.391, -0.716); // Position (forward/back, up/down, left/right) of the first engine, usually left.
+Vec3 right_engine_pos(-3.793, -0.391, 0.716); // Position of the second engine, usually right.
 
 // Pitch variables
 double  pitch_input = 0;
@@ -38,7 +61,7 @@ double	aileron_command = 0;
 
 // Yaw variables
 double  yaw_input = 0;
-int		yaw_discrete = 0;
+int	yaw_discrete = 0;
 bool	yaw_analog = true;
 double	yaw_trim = 0;
 double	rudder_command = 0;
@@ -48,12 +71,14 @@ bool	left_engine_switch = false;
 double  left_throttle_input = 0;
 double	left_throttle_output = 0;
 double	left_engine_power_readout = 0;
+double	left_thrust_force = 0;
 
 // Left engine (# 2) variables
 bool	right_engine_switch = false;
 double  right_throttle_input = 0;
 double	right_throttle_output = 0;
 double	right_engine_power_readout = 0;
+double	right_thrust_force = 0;
 
 // Lift and drag devices
 bool	airbrake_switch = false;
@@ -65,7 +90,8 @@ double	slats_pos = 0;
 // Landing gear
 bool	gear_switch = false;
 double	gear_pos = 0;
-double	wheel_brake = 0;
+double	wheel_brake = 0; 
+int	carrier_pos = 0;
 
 double  internal_fuel = 0; // Amount of fuel in the aircraft (Kg)
 double	external_fuel = 0; // Amount of fuel in external stations (Kg)
@@ -74,7 +100,8 @@ double  fuel_consumption_since_last_time = 0;
 
 double  atmosphere_density = 101000.0; // Atmosphere/air density (Pascals)
 double	altitude_ASL = 0; // Altitude above sea level
-double	altitude_AGL = 0; // Altitude above gound/surface level
+double	altitude_AGL = 0; // Altitude above gound/surface leveldouble 
+double	V_scalar = 0; // Velocity scalar
 double  speed_of_sound = 320; // Speed of sound (m/s)
 double	mach = 0; // Air speed as a multiple of the speed of sound
 double	engine_alt_effect = 1; // Multiplier of maximum thrust based on altitude
@@ -94,17 +121,14 @@ bool	on_ground = false; // Is the aircraft currently on the ground?
 // Pitch
 double	pitch = 0; // Pitch angle in radians
 double	pitch_rate = 0;
-double	pitch_acceleration = 0;
 
 // Roll
 double	roll = 0; // Roll/bank angle in radians
 double	roll_rate = 0;
-double	roll_acceleration = 0;
 
-// Yaw
-double	yaw = 0;
+// Yaw/heading
+double	heading = 0;
 double	yaw_rate = 0;
-double	yaw_acceleration = 0;
 
 // Damage stuff
 int element_integrity[111]; 
@@ -127,6 +151,9 @@ double shake_amplitude = 0;
 // Basic timer
 double fm_clock = 0; 
 
+// Has the simulation passed frame 1?
+bool sim_inititalised = false;
+
 // DLL-Lua interface
 EDPARAM interface; 
 }
@@ -134,7 +161,7 @@ EDPARAM interface;
 using namespace FM;
 
 // An example of how to interface with the Lua environment.
-// Conventionally, the names are in all-caps.
+// Conventionally, parameter names are in all-caps.
 void* fm_export_temperature = interface.getParamHandle("FM_TEMPERATURE_C");
 
 // Add force
@@ -180,6 +207,8 @@ void ed_fm_add_local_moment(double& x, double& y, double& z)
 	z = common_moment.z;
 }
 
+/*
+// Unused, doesn't seem to work.
 void ed_fm_add_global_force(double & x,double &y,double &z,double & pos_x,double & pos_y,double & pos_z)
 {
 
@@ -189,6 +218,7 @@ void ed_fm_add_global_moment(double & x,double &y,double &z)
 {
 
 }
+*/
 
 // Fuel consumption
 void simulate_fuel_consumption(double dt)
@@ -219,27 +249,40 @@ void ed_fm_simulate(double dt)
 	common_force = Vec3();
 	common_moment = Vec3();
 
-	// Defining aircraft stats here so we don't have to keep calling the FM_DATA namespace.
-	double S = FM_DATA::wing_area; // Wing area
-	double wingspan = FM_DATA::wingspan; // Wing span
-	double length = FM_DATA::length; // Overall length
-	double height = FM_DATA::height; // Overall height, not counting landing gear
-	double idle_rpm = FM_DATA::idle_rpm / 100; // RPM % at idle throttle
+	// Update the force positions to be relative to the center of mass.
+	// Somewhat unrealistic, but if this isn't done it usually leads to really weird flight behaviour.
+	if (sim_inititalised == false)
+	{
+	left_wing_pos.x = center_of_mass.x - 0.7;
+	left_wing_pos.y = center_of_mass.y + 0.5;
+
+	right_wing_pos.x = center_of_mass.x - 0.7;
+	right_wing_pos.y = center_of_mass.y + 0.5;
+
+	tail_pos.x = center_of_mass.x - 0.5;
+	tail_pos.y = center_of_mass.y;
+
+	elevator_pos.y = center_of_mass.y;
+
+	left_aileron_pos.x = center_of_mass.x;
+	left_aileron_pos.y = center_of_mass.y;
+
+	right_aileron_pos.x = center_of_mass.x;
+	right_aileron_pos.y = center_of_mass.y;
+	}
 
 	// Actuator animation function for the moving parts
-	gear_pos = limit(actuator(gear_pos, gear_switch, -0.002, 0.002), 0, 1); // Landing gear (all 3)
+	gear_pos = limit(actuator(gear_pos, gear_switch, -0.001, 0.001), 0, 1); // Landing gear (all 3)
 	airbrake_pos = limit(actuator(airbrake_pos, airbrake_switch, -0.003, 0.004), 0, 1); // Air brakes
 	flaps_pos = limit(actuator(flaps_pos, flaps_switch, -0.002, 0.002), 0, 1); // Flaps
-	slats_pos = limit(actuator(slats_pos, (alpha - 5) / 10, -0.003, 0.003), 0, 1); // Slats, starts moving at 5 degrees alpha
+	slats_pos = limit(actuator(slats_pos, (alpha - 6.0) / 12.0, -0.003, 0.003), 0, 1); // Slats, starts moving at 6 degrees alpha
 
 #pragma region AERODYNAMICS
-	Vec3 airspeed;
+	airspeed.x = velocity_world.x - wind.x;
+	airspeed.y = velocity_world.y - wind.y;
+	airspeed.z = velocity_world.z - wind.z;
 
-	airspeed.x = velocity_world_cs.x - wind.x;
-	airspeed.y = velocity_world_cs.y - wind.y;
-	airspeed.z = velocity_world_cs.z - wind.z;
-
-	double V_scalar = sqrt(airspeed.x * airspeed.x + airspeed.y * airspeed.y + airspeed.z * airspeed.z);
+	V_scalar = sqrt(airspeed.x * airspeed.x + airspeed.y * airspeed.y + airspeed.z * airspeed.z);
 
 	mach = V_scalar / speed_of_sound;
 
@@ -253,7 +296,7 @@ void ed_fm_simulate(double dt)
 	double AlphaMax_ = lerp(FM_DATA::mach_table, FM_DATA::Aldop, sizeof(FM_DATA::mach_table) / sizeof(double), mach); // Max alpha
 	double OmxMax_ = lerp(FM_DATA::mach_table, FM_DATA::OmxMax, sizeof(FM_DATA::mach_table) / sizeof(double), mach); // Max roll rate
 
-	CyMax_ += (FM_DATA::cy_flap * 0.5 * slats_pos);	// Slats increase max lift coefficient.
+	CyMax_ += (FM_DATA::cy_flap * 0.4 * slats_pos);	// Slats increase max lift coefficient.
 
 	// Lift coefficient
 	double Cy = CyAlpha_ * alpha;
@@ -278,30 +321,30 @@ void ed_fm_simulate(double dt)
 	// Drag force, acts backwards
 	double Drag = Cx0_ + (FM_DATA::cx_brk * airbrake_pos) + (FM_DATA::cx_flap * flaps_pos) + (FM_DATA::cx_gear * gear_pos);
 
-	//double stall = sin(fm_clock * (2 + aos));
-
-	// Main aerodynamic force positions
-	Vec3 left_wing_pos(center_of_mass.x - 0.7, center_of_mass.y + 0.5, -wingspan / 2);
-	Vec3 right_wing_pos(center_of_mass.x - 0.7, center_of_mass.y + 0.5, wingspan / 2);
-	Vec3 tail_pos(center_of_mass.x - 0.5, center_of_mass.y, 0);
-
+	// Cheap, unrealistic, but effective aoa limiter
 	if ((fabs(alpha) / AlphaMax_) >= 0.75)
 	{
-		// Cheap, unrealistic, but effective aoa limiter
-		left_wing_pos.x -= limit(pow((fabs(alpha) / (AlphaMax_ * 1.1)), 5) / 10, 0, length / 5) + limit(-aos * 10, 0, 1);
-		right_wing_pos.x -= limit(pow((fabs(alpha) / (AlphaMax_ * 1.1)), 5) / 10, 0, length / 5) + limit(aos * 10, 0, 1);
+		left_wing_pos.x = center_of_mass.x - 0.7 - ( limit(pow((fabs(alpha) / (AlphaMax_ * 1.1)), 3) / 2000.0, 0, length / 3) + limit(-aos * 10, 0, 1) );
+		right_wing_pos.x = center_of_mass.x - 0.7 - ( limit(pow((fabs(alpha) / (AlphaMax_ * 1.1)), 3) / 2000.0, 0, length / 3) + limit(aos * 10, 0, 1) );
+		//left_wing_pos.x -= limit(pow(fabs(alpha - 0.1) / (AlphaMax_), 2) / 1000.0, 0, length / 2);
+		//right_wing_pos.x -= limit(pow(fabs(alpha - 0.1) / (AlphaMax_), 2) / 1000.0, 0, length / 2);
+	}
+	else
+	{
+		left_wing_pos.x = center_of_mass.x - 0.7;
+		right_wing_pos.x = center_of_mass.x - 0.7;
 	};
 
 	// Left wing forces
-	Vec3 left_wing_forces(-Drag * (sin(-aos) + 1) * q * (S / 2) * left_wing_integrity, Lift * (sin(-aos / 2) + 1) * q * (S / 2) * left_wing_integrity, 0);
+	Vec3 left_wing_forces(-Drag * (sin(-aos / 2) + 1) * q * (S / 2) * left_wing_integrity, Lift * (sin(-aos / 2) / 2 + 1) * q * (S / 2) * left_wing_integrity, 0);
 	add_local_force(left_wing_forces, left_wing_pos);
 
 	// Right wing forces
-	Vec3 right_wing_forces(-Drag * (sin(aos) + 1) * q * (S / 2) * right_wing_integrity, Lift * (sin(aos / 2) + 1) * q * (S / 2) * right_wing_integrity, 0);
+	Vec3 right_wing_forces(-Drag * (sin(aos / 2) + 1) * q * (S / 2) * right_wing_integrity, Lift * (sin(aos / 2) / 2 + 1) * q * (S / 2) * right_wing_integrity, 0);
 	add_local_force(right_wing_forces, right_wing_pos);
 
 	// Tail forces
-	Vec3 tail_force(pow(-Cy_tail, 4) * sin(aoa) * (S / 2) * q * tail_integrity, 0, -Cy_tail * cos(aoa) * q * (S / 2) * tail_integrity);
+	Vec3 tail_force(pow(-Cy_tail, 3) * sin(aoa) * (S / 2) * q * tail_integrity, 0, -Cy_tail * cos(aoa) * q * (S / 2) * tail_integrity);
 	add_local_force(tail_force, tail_pos);
 #pragma endregion
 
@@ -318,7 +361,7 @@ void ed_fm_simulate(double dt)
 		//POSITIVE
 		if (pitch_discrete > 0.1)
 		{
-			pitch_input += 0.004;
+			pitch_input += 0.0035;
 
 			if (pitch_input > 1.0)
 				pitch_input = 1;
@@ -327,13 +370,13 @@ void ed_fm_simulate(double dt)
 		if (pitch_discrete == 0 && pitch_input > 0.5)
 		{
 			if (pitch_input > 0.7)
-				pitch_input *= 0.95;
+				pitch_input *= 0.98;
 		};
 
 		//NEGATIVE
 		if (pitch_discrete < -0.1)
 		{
-			pitch_input -= 0.004;
+			pitch_input -= 0.0035;
 
 			if (pitch_input < -1)
 				pitch_input = -1;
@@ -343,7 +386,7 @@ void ed_fm_simulate(double dt)
 		if (pitch_discrete == 0 && pitch_input < -0.5)
 		{
 			if (pitch_input < -0.5)
-				pitch_input *= 0.95;
+				pitch_input *= 0.98;
 		};
 	};
 
@@ -352,14 +395,11 @@ void ed_fm_simulate(double dt)
 	elevator_command = limit(actuator(elevator_command, pitch_input + pitch_trim, -0.0125, 0.0125), -1, 1);
 
 	// Elevator deflection plus default angle
-	double elevator_deflection = (-(rescale(elevator_command + 0.15, rad(-25), rad(35))) * 13) * cos(aoa / 2);
+	double elevator_deflection = (-(rescale(elevator_command + 0.15, rad(-25), rad(35))) * 14) * cos(aoa / 2);
 
-	//double pitch_stability = (aoa + sin(aoa/2) / 2) + (pitch_rate * 2);
 	double pitch_stability = (aoa + sin(aoa / 2) / 2) + (pitch_rate * 2);
 
-	Vec3 elevator_pos(-length / 2, center_of_mass.y, 0);
-
-	add_local_force(Vec3(0, ((elevator_deflection * limit(1 - sqrt(mach / 3), 0.1, 1)) + (pitch_stability * (mach + 1))) * q, 0), elevator_pos);
+	add_local_force(Vec3(0, ((elevator_deflection * limit(1 - sqrt((mach + FM_DATA::mach_max * 0.4) / 3), 0.001, 1)) + (pitch_stability * (mach / 2 + 1))) * q, 0), elevator_pos);
 
 #pragma endregion
 
@@ -398,16 +438,13 @@ void ed_fm_simulate(double dt)
 
 	roll_trim = limit(roll_trim, -0.3, 0.3);
 
-	aileron_command = limit(actuator(aileron_command, roll_input + roll_trim, -0.015, 0.015), -1, 1);
+	aileron_command = limit(actuator(aileron_command, roll_input + roll_trim, -0.02, 0.02), -1, 1);
 
 	// Aileron deflection
 	double aileron_deflection = rescale(aileron_command, rad(-30), rad(30)) * 4;
 
-	double roll_stabilty = -roll_rate / (5 + (fabs((aoa * aos + 1) / 5 + 1)))
-		- ((roll * (cos(roll / 2) + sin(roll) * 0.5) / wingspan) / 40); // + "natural" leveling
-
-	Vec3 left_aileron_pos(center_of_mass.x, center_of_mass.y, -wingspan * 0.5);
-	Vec3 right_aileron_pos(center_of_mass.x, center_of_mass.y, wingspan * 0.5);
+	double roll_stabilty = -roll_rate * (((fabs(aoa + 0.5) * fabs(aos + 0.5)) + 1) * (5 / wingspan)) +
+		(sin(roll) / 2 * fabs(aoa / 2)); // Stability and correcting some of the rolling moment whhen in a turn.
 
 	add_local_force(Vec3(0, (aileron_deflection + roll_stabilty) * q, 0), left_aileron_pos);
 	add_local_force(Vec3(0, -(aileron_deflection + roll_stabilty) * q, 0), right_aileron_pos);
@@ -454,9 +491,7 @@ void ed_fm_simulate(double dt)
 	// Rudder deflection
 	double rudder_deflection = rescale(rudder_command, rad(-30), rad(30)) * 1.5;
 
-	double yaw_stability = -((aos * 2) + yaw_rate * 2);
-
-	Vec3 rudder_pos(-length / 2, height / 2, 0);
+	double yaw_stability = -((aos * 2) + yaw_rate);
 
 	add_local_force(Vec3(0, 0, (rudder_deflection + yaw_stability) * q), rudder_pos);
 
@@ -510,8 +545,8 @@ void ed_fm_simulate(double dt)
 		right_engine_power_readout = limit(lerp(FM_DATA::throttle_input_table, FM_DATA::engine_power_readout_table, sizeof(FM_DATA::throttle_input_table) / sizeof(float), right_throttle_input), 0, 1);
 	};
 
-	double left_thrust_force = left_throttle_output * max_dry_thrust * engine_alt_effect * left_engine_integrity * 0.5;
-	double right_thrust_force = right_throttle_output * max_dry_thrust * engine_alt_effect * right_engine_integrity * 0.5;
+	left_thrust_force = left_throttle_output * max_dry_thrust * engine_alt_effect * left_engine_integrity * 0.5;
+	right_thrust_force = right_throttle_output * max_dry_thrust * engine_alt_effect * right_engine_integrity * 0.5;
 
 	left_engine_power_readout *= left_engine_integrity;
 	right_engine_power_readout *= right_engine_integrity;
@@ -527,25 +562,24 @@ void ed_fm_simulate(double dt)
 		right_engine_power_readout = actuator(left_engine_power_readout, 0.0, -dt / 10, dt / 10);
 	};
 
-	// The positions are relative to the object's 3d model origin point.
-	// Greater Y and Z offsets create moments from the thrust force.
-
-	Vec3 left_engine_pos(-3.793, -0.391, -0.716); // Position (forward/back, up/down, left/right) of the first engine, usually left.
-	Vec3 right_engine_pos(-3.793, -0.391, 0.716); // Position of the second engine, usually right.
-
 	//add_local_force(thrust, thrust_pos);
 	add_local_force(Vec3(left_thrust_force, 0, 0), left_engine_pos);
 	add_local_force(Vec3(right_thrust_force, 0, 0), right_engine_pos);
 
 	if (infinite_fuel == false)
+	{
 		simulate_fuel_consumption(dt);
+	};
 
 #pragma endregion
 
 	// MISC //
 #pragma region MISC
-	// Artificial limiter forces and moments.
+	// Artificial limiters and other forces and moments.
 	// Not exactly realistic, but added for convenience.
+
+	double roll_yaw_moment = -(roll_rate / 2) * (q + 1e5 * 0.5); // Subtle yaw moment to keep stable in sharp turns
+	add_local_moment(Vec3(0, roll_yaw_moment, 0));
 
 	double roll_rate_limiter = -roll_rate * limit(pow((limit(fabs(roll_rate) / (OmxMax_ + 0.1), 0.0001, 2)), 6) * (q + q + 1e5 * 0.3), -1e7, 1e7);
 	add_local_moment(Vec3(roll_rate_limiter, 0, 0));
@@ -557,7 +591,7 @@ void ed_fm_simulate(double dt)
 	add_local_force(-speed_limiter, center_of_mass);
 
 	// Note about speed:
-	// In DCS, if a plane goes faster than around 3100 Km/h (ground speed), it explodes. Even with invincibility on.
+	// In DCS, if a plane goes faster than around 3100 Km/h (860 m/s) ground speed, it explodes. Even with invincibility on.
 
 	// Additional optional artificial stuff for easier and more stable flight.
 	if (easy_flight == true)
@@ -572,7 +606,7 @@ void ed_fm_simulate(double dt)
 	};
 
 	// Logic for determining if the aircraft is on the ground.
-	if (gear_pos > 0.5 && altitude_AGL < 3 && mach < 0.3)
+	if (gear_pos > 0.5 && altitude_AGL < 50.0 && mach < 0.3)
 	{
 		on_ground = true;
 	}
@@ -602,6 +636,7 @@ void ed_fm_simulate(double dt)
 	};
 #pragma endregion
 
+	sim_inititalised = true; // The first step is complete
 }
 
 // Atmosphere data
@@ -637,7 +672,7 @@ void ed_fm_set_surface(double h, // distance between sea level and the surface/g
 	double normal_x, double normal_y, double normal_z // components of normal vector to surface
 )
 {
-	altitude_AGL = altitude_ASL - h;
+	altitude_AGL = altitude_ASL - (h + h_obj * 0.5);
 }
 
 // Called before simulation to set up your environment for the next step
@@ -660,9 +695,9 @@ void ed_fm_set_current_state (double ax, double ay, double az,//linear accelerat
 							double quaternion_x, double quaternion_y, double quaternion_z, double quaternion_w //orientation quaternion components in world coordinate system
 							)
 {
-	velocity_world_cs.x = vx;
-	velocity_world_cs.y = vy;
-	velocity_world_cs.z = vz;
+	velocity_world.x = vx;
+	velocity_world.y = vy;
+	velocity_world.z = vz;
 }
 
 
@@ -687,19 +722,15 @@ void ed_fm_set_current_state_body_axis(double ax, double ay, double az,//linear 
 	// Positive aos is yaw left, negative is right.
 	// Positive aos means more wind on the right wing, negative on the left wing.
 
-	g = (ay / 9.81) + 1; // 1 g is -9.81 m/s², Earth's gravity. 
+	g = (ay / 9.81) + 1; // 1 g is -9.81 m/sÂ², Earth's gravity. 
 
 	FM::pitch = pitch;
 	FM::roll = roll;
-	FM::yaw = yaw;
+	FM::heading = yaw;
 
 	roll_rate = omegax;
 	yaw_rate = omegay;
 	pitch_rate = omegaz;
-
-	roll_acceleration = omegadotx;
-	yaw_acceleration = omegadoty;
-	pitch_acceleration = omegadotz;
 }
 
 // Input handling
@@ -889,28 +920,28 @@ void ed_fm_set_command (int command, float value)
 		airbrake_switch = true;
 		break;
 
-	case flapstoggle: //toggle
+	case flapsToggle: //toggle
 		if (flaps_switch == false)
 			flaps_switch = true;
 		else if (flaps_switch == true)
 			flaps_switch = false;
 		break;
-	case flapsdown:
+	case flapsDown:
 		flaps_switch = false;
-	case flapsup:
+	case flapsUp:
 		flaps_switch = true;
 		break;
 
-	case geartoggle:
+	case gearToggle:
 		if (gear_switch == true)
 			gear_switch = false;
 		else if (gear_switch == false)
 			gear_switch = true;
 		break;
-	case geardown:
+	case gearDown:
 		gear_switch = true;
 		break;
-	case gearup:
+	case gearUp:
 		gear_switch = false;
 		break;
 
@@ -920,6 +951,7 @@ void ed_fm_set_command (int command, float value)
 	case WheelBrakeOff:
 		wheel_brake = 0;
 		break;
+
 	}
 
 }
@@ -992,7 +1024,7 @@ void  ed_fm_set_external_fuel (int	 station,
 								double fuel,
 								double x, double y, double z)
 {
-	// Not sure how to wirk with this.
+	// Not sure how to work with this.
 }
 
 // Get external fuel volume
@@ -1004,7 +1036,7 @@ double ed_fm_get_external_fuel ()
 // This stuff controls "arguments", which are mostly moving parts, pylons, lights, etc on the aircraft's model.
 void ed_fm_set_draw_args (EdDrawArgument * drawargs,size_t size)
 {
-	//See the model viewer for arguments on the aircraft.
+	//See the model viewer on your aircraft model for arguments on the aircraft.
 
 	// Landing gear
 	drawargs[0].f = (float)limit(gear_pos, 0, 1); // Nose
@@ -1043,12 +1075,15 @@ void ed_fm_set_draw_args (EdDrawArgument * drawargs,size_t size)
 	/*
 	Hints on some aircraft args where applicable
 
+	25 is the tail hook or weapons bay on some aircraft
+
 	115 to 117 are gear doors
 
 	7 is wing sweep
 
 	28 and 29 are left and right afterburners
-	89 and 90 are left and right engine nozzles
+
+	89 and 90 are left and right engine nozzle apertures
 
 	40 and 41 are helicopter rotors
 
@@ -1237,7 +1272,6 @@ void ed_fm_on_damage(int Element, double element_integrity_factor)
 		// Right engine
 		right_engine_integrity = element_integrity[14] * element_integrity[18] * element_integrity[104];
 	}
-	// TO DO: Failure events
 }
 
 // What should be reset when the aircraft is repaired?
@@ -1249,14 +1283,57 @@ void ed_fm_repair()
 	}
 }
 
+bool ed_fm_pop_simulation_event(ed_fm_simulation_event& out)
+{
+	// Catapult launch sequence
+	if (carrier_pos == 1)
+	{
+		if (left_throttle_output > 0.99) // Automatic launch at full throttle
+		{
+			out.event_type = ED_FM_EVENT_CARRIER_CATAPULT;
+			out.event_params[0] = 1;
+			out.event_params[1] = 2.0; // Start delay (s)
+			out.event_params[2] = 80.0; // Added velocity after takeoff (m/s)
+			out.event_params[3] = FM_DATA::max_thrust[1] * 0.5 * 2; // Engine thrust during takeoff (N)? Doesn't seem to work.
+			carrier_pos = 2;
+			return true;
+		}
+	}
+	return false;
+}
+
+// bool ed_fm_push_simulation_event. DCS will call it for your FM when ingame event occurs
+bool ed_fm_push_simulation_event(const ed_fm_simulation_event& in)
+{
+	if (in.event_type == ED_FM_EVENT_CARRIER_CATAPULT)
+	{
+		if (in.event_params[0] == 1)
+		{
+			carrier_pos = 1;
+		}
+		else if (in.event_params[0] == 2) // start launch
+		{
+			carrier_pos = 3;
+		}
+		else if (in.event_params[0] == 3) // launch finished
+		{
+			carrier_pos = 0;
+		}
+	}
+	return false;
+	// TO DO: Failure events
+}
+
+
 // What should be set on a cold start on the ground?
 void ed_fm_cold_start()
 {
 	// Landing gear down
 	gear_switch = true;
 	gear_pos = 1;
+	carrier_pos = 0;
 
-	//Engines off
+	// Engines off
 	left_engine_switch = false;
 	left_throttle_input = 0.0;
 	left_throttle_output = 0.0;
@@ -1274,12 +1351,13 @@ void ed_fm_hot_start()
 	// Landing gear down
 	gear_switch = true;
 	gear_pos = 1;
+	carrier_pos = 0;
 
 	// Flaps down
 	flaps_switch = true;
 	flaps_pos = 1;
 
-	//Engines on at idle/minimum throttle
+	// Engines on at idle/minimum throttle
 	left_engine_switch = true;
 	left_throttle_input = 0.0;
 	left_throttle_output = 0.5;
@@ -1297,6 +1375,7 @@ void ed_fm_hot_start_in_air()
 	// Landing gear up
 	gear_switch = false;
 	gear_pos = 0;
+	carrier_pos = 0;
 
 	//Engines on at 50% throttle
 	left_engine_switch = true;
@@ -1310,7 +1389,7 @@ void ed_fm_hot_start_in_air()
 	right_engine_power_readout = 0.5;
 }
 
-// What should be reset on mission exit or restart?
+// What should be reset on mission exit?
 void ed_fm_release()
 {
 	fm_clock = 0;
